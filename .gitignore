@@ -1,0 +1,16 @@
+# Secrets
+.env
+
+# Python
+__pycache__/
+*.pyc
+.venv/
+venv/
+
+# Data (download from Kaggle, see README)
+data/
+
+# Editor / OS
+.vscode/
+.DS_Store
+Thumbs.db
