@@ -282,7 +282,7 @@ olist-dwh-project/
 | python-dotenv | Keeping credentials out of the code |
 | PostgreSQL / pgAdmin | Data warehouse and verification queries |
 | Power BI (DAX) | Data model, measures and the four-page dashboard |
-| draw.io / Graphviz | Star schema diagram |
+| draw.io | Star schema diagram |
 
 ---
 
