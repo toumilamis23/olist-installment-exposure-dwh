@@ -6,7 +6,9 @@ Running log of findings from Data Understanding phase (CRISP-DM). Updated after 
 
 ## Project Summary (for context if picked up cold)
 
-**Main business question:** How much cash is Olist's marketplace fronting at any given time due to installment purchases, and where is that exposure concentrated?
+**Main business question (final wording):** How much of Olist's payment volume is paid in installments, and where is that installment-payment exposure concentrated?
+
+*(The original scoping wording was "how much cash is Olist fronting". It was changed because the data cannot show who finances the installments. See "Wording decision" below.)*
 
 **Sub-questions & dashboard pages:**
 1. **Overview** — How big is the exposure overall?
@@ -15,12 +17,10 @@ Running log of findings from Data Understanding phase (CRISP-DM). Updated after 
 4. **Cost & Trend** — What does it cost, and where is it heading?
 
 **16 KPIs (4 per page):**
-- Page 1: Total Outstanding Installment Value, % of Orders Financed, Avg Installments per Financed Order, Total Revenue vs Financed Revenue
+- Page 1: Installment-Payment Volume, % of Orders Paid in Installments, Avg Installments per Order, Total Revenue vs Installment Revenue
 - Page 2: Exposure by Category, Exposure by Region/State, Top 10% Sellers' Share of Financed Revenue, Payment Type Mix per Category
 - Page 3: Avg Installments vs Order Value, Cancellation Rate (High vs Low Installments), Late Delivery Rate on High-Installment Orders, Review Score by Installment Bucket
 - Page 4: Estimated Cost of Financing, Exposure Trend/Trajectory, Projected Next-Month Exposure, Exposure as % of Total Payment Volume Over Time
-
-**Full detail on business question/KPI rationale:** see `Olist_DWH_Project_Scoping.pdf` (companion document, generated earlier in the project).
 
 **Star schema:** 1 fact table (`fact_orders`, grain = one row per order) + 4 dimensions (`dim_customers`, `dim_products`, `dim_sellers`, `dim_date`) — see `olist_star_schema.jpg`.
 
@@ -130,8 +130,37 @@ All primary keys confirmed unique. Orphan check on `fact_orders.order_date_id` �
 
 ---
 
-## Next phase: Load into PostgreSQL
-Before loading into Postgres, every field in `fact_orders` was checked against all 16 KPIs to confirm the schema actually supports them. Two gaps were found and fixed:
+## ✅ LOADED INTO POSTGRESQL — VERIFIED
+All 5 tables (`fact_orders`, `dim_customers`, `dim_products`, `dim_sellers`, `dim_date`) successfully loaded into `olist_dwh` database via SQLAlchemy + psycopg2. Confirmed visually in pgAdmin — all tables present with real data.
+
+**Pipeline structure (final):**
+- `02_data_preparation_exploratory.py` — original investigation script with full print-based verification (learning record)
+- `data_preparation.py` — refactored into `build_star_schema()` function, returns all 5 tables, no side-effect prints
+- `03_load_to_postgres.py` — imports the function, connects via SQLAlchemy engine, loads all 5 tables with `.to_sql(if_exists='replace')`
+
+**Security/config notes:**
+- Postgres password stored in `.env` (not hardcoded), loaded via `python-dotenv` with `override=True` — needed because a leftover global Windows environment variable (`DB_PASSWORD`, from an unrelated project) was silently taking precedence. Renamed to `OLIST_DB_PASSWORD` to avoid future naming collisions across projects.
+- `.env` added to `.gitignore` — credentials never get pushed to GitHub
+- Windows Defender's "Controlled folder access" initially blocked python.exe from writing in the Documents folder — resolved by allowlisting python.exe
+
+---
+
+## Dashboard assumptions (copy into README under "Assumptions & Limitations")
+- **Estimated Monthly Financing Cost (Page 4):** calculated as Financed Revenue x 1.5% per month. The 1.5% rate is an illustrative assumption (roughly 18% annualized, in the range of short-term business lending). Olist's data contains no real financing cost. It is shown as an estimate in the chart title.
+- **High vs Low installments (Page 3):** split at the median installment count of financed orders (4), verified in PostgreSQL. High = 5+, Low = 1-4.
+- **Cancellation (Page 3):** used as a risk proxy, not a confirmed financial loss (no refund data in the dataset).
+- **Projected Next-Month Exposure (Page 4):** simple linear trend fitted on the last 6 months (Mar-Aug 2018), because growth plateaued in 2018 (a fit over all 20 months overshot at 0.83M). A rough estimate, not a forecast model; ignores seasonality.
+- **Exposure % of payment volume (Page 4):** stays at about 60-66% across Jan 2017 - Aug 2018, so financed share is stable, not growing.
+- **Wording decision (review feedback):** "cash fronted by Olist" is NOT supported by the data. The dataset has no information on who finances the installments or when Olist is paid. The project is framed as **installment-payment exposure**: how much of payment volume is paid in installments and where it concentrates. Dashboard labels and README use "installment payment value", not "outstanding" or "cash advanced".
+- **Financing cost is a scenario, not a result:** chart title reads "Estimated financing cost scenario (assumes 1.5%/month on installment revenue)". Cost scales linearly with the rate.
+- **Risk conclusion (Page 3):** worded narrowly as "no substantial differences were found in the measured outcomes (cancellation, late delivery, review score) between high and low installment orders". No claim about causation or credit risk.
+- **Projection:** described as a "linear trend estimate", not a forecast.
+- **Trend charts:** filtered to Jan 2017 - Aug 2018 to exclude near-empty edge months.
+
+---
+
+## Schema check against the 16 KPIs (done before the Power BI build)
+Before building the dashboard, every field in `fact_orders` was checked against all 16 KPIs to confirm the schema actually supports them. Two gaps were found and fixed:
 - **`payment_type_mode`** added — needed for "Payment Type Mix per Category" (Page 2), which was missed when payments were first aggregated (only sum/max/count were kept, payment_type itself was dropped)
 - **`order_delivered_customer_date`** and **`order_estimated_delivery_date`** added — needed for "Late Delivery Rate on High-Installment Orders" (Page 3), which requires the actual dates, not just the `is_delivery_data_valid` flag
 - **Region decision:** "Exposure by Region" (Page 2) uses `customer_state`, not seller_state — exposure/financing risk is about where the financed customer is located, not where the seller operates. Seller region is still used separately for "Top 10% Sellers' Share."
